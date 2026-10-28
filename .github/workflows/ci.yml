@@ -1,0 +1,30 @@
+# CI (integración continua): cada cambio se verifica antes de aceptarlo.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:   # el CT lo lanza después de guardar un modelo nuevo
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v7
+
+      - name: Instalar Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Verificar los datos
+        run: python src/validar_datos.py datos/ventas.csv
+
+      - name: Pruebas (datos, modelo y API)
+        run: pytest -v

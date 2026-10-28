@@ -1,0 +1,49 @@
+# CD (despliegue continuo): si el CI pasó en main, se construye la imagen Docker,
+# se prueba y se publica en GitHub Container Registry (ghcr.io).
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write   # permite publicar en ghcr.io con el GITHUB_TOKEN (no hace falta ningún secreto)
+
+env:
+  IMAGEN: ghcr.io/${{ github.repository }}
+  VERSION: ${{ github.event.workflow_run.head_sha }}   # el commit que pasó el CI
+
+jobs:
+  publicar:
+    # Solo si el CI terminó bien y no era un pull request
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código (el mismo commit que verificó el CI)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.VERSION }}
+
+      - name: Construir la imagen
+        run: >
+          docker build
+          --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          -t $IMAGEN:$VERSION -t $IMAGEN:latest .
+
+      - name: Probar la imagen antes de publicarla
+        run: |
+          docker run -d -p 8000:8000 $IMAGEN:latest
+          curl --fail --retry 15 --retry-all-errors --retry-delay 1 "http://localhost:8000/api/predecir?temperatura=25"
+
+      - name: Iniciar sesión en ghcr.io
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar la imagen
+        run: docker push --all-tags $IMAGEN
