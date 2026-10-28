@@ -1,5 +1,5 @@
 # CT (entrenamiento continuo): llegan datos nuevos, se verifican, se revisa si el
-# modelo sigue sirviendo y, si no, se reentrena, se guarda y se despliega (CI -> CD).
+# modelo sigue sirviendo y, si no, se reentrena, se guarda y se despliega (CI/CD).
 name: CT
 
 on:
@@ -15,7 +15,7 @@ on:
 
 permissions:
   contents: write   # guardar el modelo nuevo en el repositorio
-  actions: write    # lanzar el CI después de guardarlo
+  actions: write    # lanzar el CI/CD después de guardarlo
 
 env:
   ESCENARIO: ${{ inputs.escenario || 'normal' }}   # la ejecución programada usa "normal"
@@ -52,7 +52,7 @@ jobs:
           cp datos/nuevos.csv datos/ventas.csv
           python src/entrenar.py datos/ventas.csv
 
-      - name: 5. Guardar el modelo y lanzar CI -> CD
+      - name: 5. Guardar el modelo y lanzar el CI/CD
         if: steps.drift.outputs.reentrenar == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,5 +62,5 @@ jobs:
           git add datos/ventas.csv modelo/modelo.json
           git commit -m "CT: retrain model (scenario $ESCENARIO)"
           git push
-          # Un push hecho con el GITHUB_TOKEN no dispara otros workflows: el CI se lanza a mano
-          gh workflow run ci.yml --ref main
+          # Un push hecho con el GITHUB_TOKEN no dispara otros workflows: el CI/CD se lanza a mano
+          gh workflow run ci-cd.yml --ref main

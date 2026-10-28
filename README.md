@@ -50,6 +50,12 @@ O directamente la imagen que publicó el CD:
 docker run -p 8000:8000 ghcr.io/kenjikv/heladeria-ci-cd-ct:latest
 ```
 
+En un Mac con chip Apple (M1 o posterior) la imagen se corre emulada; hay que pedir la plataforma:
+
+```bash
+docker run --platform linux/amd64 -p 8000:8000 ghcr.io/kenjikv/heladeria-ci-cd-ct:latest
+```
+
 ### Lanzar el CT
 
 En GitHub: pestaña **Actions → CT → Run workflow**, elegir el escenario y ejecutar. O desde la terminal:
@@ -58,7 +64,7 @@ En GitHub: pestaña **Actions → CT → Run workflow**, elegir el escenario y e
 gh workflow run ct.yml -f escenario=precio_alto
 ```
 
-Si el CT reentrena, al terminar el CD hay una imagen nueva: `docker pull ghcr.io/kenjikv/heladeria-ci-cd-ct:latest` y la página muestra el modelo nuevo y su fecha de entrenamiento.
+Si el CT reentrena, al terminar el CI/CD hay una imagen nueva: `docker pull ghcr.io/kenjikv/heladeria-ci-cd-ct:latest` y la página muestra el modelo nuevo y su fecha de entrenamiento.
 
 > En un fork: activar los workflows en la pestaña **Actions**. La imagen queda en `ghcr.io/<tu-usuario>/heladeria-ci-cd-ct`.
 
@@ -84,9 +90,8 @@ heladeria-ci-cd-ct/
 ├── requirements.txt            # todo (desarrollo, entrenamiento y pruebas)
 ├── requirements-api.txt        # solo lo que necesita la API
 └── .github/workflows/
-    ├── ci.yml
-    ├── cd.yml
-    └── ct.yml
+    ├── ci-cd.yml               # CI y CD: dos jobs en un mismo workflow
+    └── ct.yml                  # CT
 ```
 
 ### El flujo
@@ -94,16 +99,16 @@ heladeria-ci-cd-ct/
 ```mermaid
 flowchart LR
     P[push o pull request] --> CI
-    CT -- "si reentrenó:<br>commit + lanza el CI" --> CI
+    CT -- "si reentrenó:<br>commit + lanza el CI/CD" --> CI
     CI -- "pasó en main" --> CD
     CD --> R[(ghcr.io)]
 ```
 
 | Pipeline | Cuándo corre | Qué hace |
 |---|---|---|
-| **CI** (`ci.yml`) | En cada push a `main`, en cada pull request y cuando lo lanza el CT | 1. Verifica `datos/ventas.csv` · 2. Corre las pruebas: validación de datos, entrenamiento, el modelo guardado pasa la puerta de calidad, detección de drift y la API |
-| **CD** (`cd.yml`) | Cuando el CI termina bien en `main` | 1. Construye la imagen Docker del commit que pasó el CI · 2. La levanta y le pide una predicción · 3. Si responde, la publica en `ghcr.io` con dos etiquetas: el SHA del commit y `latest` |
-| **CT** (`ct.yml`) | Cada lunes 12:00 UTC o a mano | 1. Llegan datos nuevos (simulados) · 2. Los verifica · 3. Revisa drift · 4. Si hay concept drift, reentrena con los datos nuevos · 5. Guarda datos y modelo con un commit y lanza el CI (que a su vez lanza el CD) |
+| **CI** (job `ci` de `ci-cd.yml`) | En cada push a `main`, en cada pull request y cuando lo lanza el CT | 1. Verifica `datos/ventas.csv` · 2. Corre las pruebas: validación de datos, entrenamiento, el modelo guardado pasa la puerta de calidad, detección de drift y la API |
+| **CD** (job `cd` de `ci-cd.yml`) | Después del CI, si pasó y es `main` | 1. Construye la imagen Docker del commit que pasó el CI · 2. La levanta y le pide una predicción · 3. Si responde, la publica en `ghcr.io` con dos etiquetas: el SHA del commit y `latest` |
+| **CT** (`ct.yml`) | Cada lunes 12:00 UTC o a mano | 1. Llegan datos nuevos (simulados) · 2. Los verifica · 3. Revisa drift · 4. Si hay concept drift, reentrena con los datos nuevos · 5. Guarda datos y modelo con un commit y lanza el CI/CD |
 
 ### Escenarios del CT
 
@@ -122,5 +127,5 @@ Para repetir la demostración, alternar `precio_alto` y `normal`: cada cambio de
 - **Una sola puerta de calidad: MAE ≤ 15 helados por día.** `entrenar.py` no guarda un modelo peor que eso y `revisar_drift.py` pide reentrenar cuando el modelo actual se equivoca más que eso con los datos nuevos.
 - **Se reentrena con los datos nuevos** (la última semana), porque los viejos responden a una regla que ya no existe.
 - **Sin secretos.** El CD publica con el `GITHUB_TOKEN` del propio workflow (`permissions: packages: write`).
-- **El CT lanza el CI a mano** (`gh workflow run`) porque un push hecho con el `GITHUB_TOKEN` no dispara otros workflows.
+- **CI y CD van en un mismo workflow y el CT lo lanza con `gh workflow run`.** Un push hecho con el `GITHUB_TOKEN` no dispara otros workflows, y un workflow lanzado así tampoco dispara a los que esperan su resultado (`workflow_run`). Con el CD en otro archivo, la cadena CT → CI → CD se cortaría.
 - **La imagen se prueba antes de publicarse**: si la API no responde, no llega a `ghcr.io`.

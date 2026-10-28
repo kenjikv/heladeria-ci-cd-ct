@@ -1,0 +1,69 @@
+# CI/CD en un solo workflow con dos jobs:
+# - CI (integración continua): cada cambio se verifica antes de aceptarlo.
+# - CD (despliegue continuo): si el CI pasó en main, se construye la imagen Docker,
+#   se prueba y se publica en GitHub Container Registry (ghcr.io).
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:   # el CT lo lanza después de guardar un modelo nuevo
+
+jobs:
+  ci:
+    name: CI - verificar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v7
+
+      - name: Instalar Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Verificar los datos
+        run: python src/validar_datos.py datos/ventas.csv
+
+      - name: Pruebas (datos, modelo y API)
+        run: pytest -v
+
+  cd:
+    name: CD - publicar imagen
+    needs: ci                                            # solo si el CI pasó
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # permite publicar en ghcr.io con el GITHUB_TOKEN (no hace falta ningún secreto)
+    env:
+      IMAGEN: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v7
+
+      - name: Construir la imagen
+        run: >
+          docker build
+          --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          -t $IMAGEN:${{ github.sha }} -t $IMAGEN:latest .
+
+      - name: Probar la imagen antes de publicarla
+        run: |
+          docker run -d -p 8000:8000 $IMAGEN:latest
+          curl --fail --retry 15 --retry-all-errors --retry-delay 1 "http://localhost:8000/api/predecir?temperatura=25"
+
+      - name: Iniciar sesión en ghcr.io
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar la imagen
+        run: docker push --all-tags $IMAGEN
